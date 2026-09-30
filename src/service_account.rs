@@ -25,4 +25,8 @@ impl ServiceAccount {
             .map_err(|e| GoogleApiError::ServiceAccountLoadFailure(e))?;
         Ok(serde_json::from_str(&file_contents)?)
     }
+
+    pub fn load_from_string<S: AsRef<str>>(file_contents: S) -> Result<Self> {
+        Ok(serde_json::from_str(file_contents.as_ref())?)
+    }
 }

@@ -89,6 +89,19 @@ impl<'a> GmailClientBuilder {
         })
     }
 
+    /// Create a new `GmailClientBuilder`.
+    /// Uses str representation of credentials JSON instead of a filepath.
+    pub fn new_from_string<S: AsRef<str>>(
+        service_account_json: S,
+        send_from_email: S,
+    ) -> Result<Self> {
+        Ok(Self {
+            service_account: ServiceAccount::load_from_string(service_account_json.as_ref())?,
+            send_from_email: send_from_email.as_ref().to_string(),
+            mock_mode: false,
+        })
+    }
+
     /// Set "mock mode" which, if set to true, will log print the email instead of sending it.
     pub fn mock_mode(mut self, enabled: bool) -> Self {
         self.mock_mode = enabled;
