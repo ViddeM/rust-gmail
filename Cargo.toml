@@ -1,7 +1,7 @@
 [package]
 name = "rust-gmail"
 description = "A simple crate to send emails using the Gmail API"
-version = "0.2.1"
+version = "0.3.0"
 edition = "2021"
 keywords = ["gmail", "email"]
 categories = ["email"]
