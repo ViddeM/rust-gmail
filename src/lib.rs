@@ -4,7 +4,7 @@
 
 //! # A Rust library to interact with the google Gmail API using a service account.
 //!
-//! Currently focused only on support for sending emails but this may change in the future.
+//! Currently focused only on support for sending emails (including calendar invites) but this may change in the future.
 //! Available both as async (default) or as blocking using the "blocking" feature.
 //!
 //! Note that usage of this lib will require a google API service account with domain wide delegation for gmail setup with a google cloud project with the gmail API enabled.
@@ -49,7 +49,9 @@
 
 use std::path::Path;
 
-use async_impl::{send_email::send_email, token::retrieve_token};
+use async_impl::{
+    send_calendar_event::send_calendar_event, send_email::send_email, token::retrieve_token,
+};
 use error::Result;
 use service_account::ServiceAccount;
 
@@ -59,6 +61,8 @@ pub mod error;
 mod async_impl;
 mod common;
 mod service_account;
+
+pub use common::calendar::CalendarEvent;
 
 #[cfg(feature = "blocking")]
 mod blocking;
@@ -167,6 +171,49 @@ impl GmailClient {
             send_to_email,
             subject,
             content,
+            &self.token,
+            &self.send_from_email,
+            self.mock_mode,
+        )
+    }
+
+    /// Send a calendar invite to `send_to_email` as an email with an iCalendar attachment.
+    /// The `subject` and `content` are used for the email itself.
+    pub async fn send_calendar_event(
+        &self,
+        send_to_email: &str,
+        subject: &str,
+        content: &str,
+        event: &CalendarEvent,
+    ) -> Result<()> {
+        send_calendar_event(
+            send_to_email,
+            subject,
+            content,
+            event,
+            &self.token,
+            &self.send_from_email,
+            self.mock_mode,
+        )
+        .await
+    }
+
+    /// A blocking alternative to [`send_calendar_event()`].
+    #[cfg(feature = "blocking")]
+    pub fn send_calendar_event_blocking(
+        &self,
+        send_to_email: &str,
+        subject: &str,
+        content: &str,
+        event: &CalendarEvent,
+    ) -> Result<()> {
+        use blocking::send_calendar_event::send_calendar_event_blocking;
+
+        send_calendar_event_blocking(
+            send_to_email,
+            subject,
+            content,
+            event,
             &self.token,
             &self.send_from_email,
             self.mock_mode,

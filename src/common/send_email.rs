@@ -19,6 +19,12 @@ impl GoogleSendEmailRequest {
         ));
         Self { raw: raw_message }
     }
+
+    pub fn from_raw(message: &str) -> Self {
+        Self {
+            raw: base64::encode_config(message, base64::URL_SAFE),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize)]
