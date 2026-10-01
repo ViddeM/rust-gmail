@@ -2,6 +2,26 @@ use chrono::{DateTime, Utc};
 
 use crate::common::send_email::{format_message, wrapped_base64, GoogleSendEmailRequest};
 
+/// The iCalendar method of a [`CalendarEvent`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CalendarMethod {
+    /// Invite recipients to the event, or update it if it was sent before. This is the default.
+    #[default]
+    Request,
+    /// Cancel an event that was sent before. The `uid` and `sequence` should match
+    /// (or be higher than) the event being cancelled.
+    Cancel,
+}
+
+impl CalendarMethod {
+    fn as_str(&self) -> &'static str {
+        match self {
+            CalendarMethod::Request => "REQUEST",
+            CalendarMethod::Cancel => "CANCEL",
+        }
+    }
+}
+
 /// A calendar event that can be sent as an iCalendar invite using
 /// [`GmailClient::send_calendar_event`](crate::GmailClient::send_calendar_event).
 #[derive(Debug, Clone)]
@@ -12,6 +32,8 @@ pub struct CalendarEvent {
     description: Option<String>,
     location: Option<String>,
     uid: Option<String>,
+    sequence: u32,
+    method: CalendarMethod,
 }
 
 impl CalendarEvent {
@@ -24,6 +46,8 @@ impl CalendarEvent {
             description: None,
             location: None,
             uid: None,
+            sequence: 0,
+            method: CalendarMethod::Request,
         }
     }
 
@@ -47,6 +71,21 @@ impl CalendarEvent {
         self
     }
 
+    /// Set the revision number of the event, `0` by default. To update an event that was
+    /// already sent, resend it with the same [`uid`](Self::uid) and a higher sequence number;
+    /// calendar clients typically ignore updates that don't increase it.
+    pub fn sequence(mut self, sequence: u32) -> Self {
+        self.sequence = sequence;
+        self
+    }
+
+    /// Set the [`CalendarMethod`], [`CalendarMethod::Request`] by default.
+    /// Use [`CalendarMethod::Cancel`] together with the original [`uid`](Self::uid) to cancel an event.
+    pub fn method(mut self, method: CalendarMethod) -> Self {
+        self.method = method;
+        self
+    }
+
     pub(crate) fn to_ics(&self, organizer: &str, attendee: &str) -> String {
         let now = Utc::now();
         let uid = self.uid.clone().unwrap_or_else(|| {
@@ -64,7 +103,7 @@ impl CalendarEvent {
             "VERSION:2.0".to_string(),
             "PRODID:-//rust-gmail//EN".to_string(),
             "CALSCALE:GREGORIAN".to_string(),
-            "METHOD:REQUEST".to_string(),
+            format!("METHOD:{}", self.method.as_str()),
             "BEGIN:VEVENT".to_string(),
             format!("UID:{}", escape_text(&uid)),
             format!("DTSTAMP:{}", format_time(&now)),
@@ -83,8 +122,12 @@ impl CalendarEvent {
             "ATTENDEE;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:{}",
             attendee
         ));
-        lines.push("STATUS:CONFIRMED".to_string());
-        lines.push("SEQUENCE:0".to_string());
+        let status = match self.method {
+            CalendarMethod::Request => "CONFIRMED",
+            CalendarMethod::Cancel => "CANCELLED",
+        };
+        lines.push(format!("STATUS:{}", status));
+        lines.push(format!("SEQUENCE:{}", self.sequence));
         lines.push("END:VEVENT".to_string());
         lines.push("END:VCALENDAR".to_string());
 
@@ -149,7 +192,10 @@ impl GoogleSendEmailRequest {
             &[
                 (
                     "Content-Type",
-                    "text/calendar; charset=\"UTF-8\"; method=REQUEST",
+                    &format!(
+                        "text/calendar; charset=\"UTF-8\"; method={}",
+                        event.method.as_str()
+                    ),
                 ),
                 ("Content-Transfer-Encoding", "base64"),
             ],
@@ -223,6 +269,18 @@ mod tests {
         assert!(ics.contains("METHOD:REQUEST\r\n"));
         assert!(ics.contains("SUMMARY:Sync\\, now\r\n"));
         assert!(ics.contains("DTSTART:20300101T100000Z\r\n"));
+        assert!(ics.contains("SEQUENCE:0\r\n"));
         assert!(ics.ends_with("END:VCALENDAR\r\n"));
+
+        let cancel = event
+            .clone()
+            .uid("abc")
+            .sequence(2)
+            .method(CalendarMethod::Cancel)
+            .to_ics("a@x.test", "b@y.test");
+        assert!(cancel.contains("METHOD:CANCEL\r\n"));
+        assert!(cancel.contains("STATUS:CANCELLED\r\n"));
+        assert!(cancel.contains("SEQUENCE:2\r\n"));
+        assert!(cancel.contains("UID:abc\r\n"));
     }
 }

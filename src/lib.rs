@@ -62,7 +62,7 @@ mod async_impl;
 mod common;
 mod service_account;
 
-pub use common::calendar::CalendarEvent;
+pub use common::calendar::{CalendarEvent, CalendarMethod};
 
 #[cfg(feature = "blocking")]
 mod blocking;
