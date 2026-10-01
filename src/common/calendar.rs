@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 
-use crate::common::send_email::{format_message, GoogleSendEmailRequest};
+use crate::common::send_email::{format_message, wrapped_base64, GoogleSendEmailRequest};
 
 /// A calendar event that can be sent as an iCalendar invite using
 /// [`GmailClient::send_calendar_event`](crate::GmailClient::send_calendar_event).
@@ -95,15 +95,6 @@ impl CalendarEvent {
             .join("\r\n")
             + "\r\n"
     }
-}
-
-fn wrapped_base64(data: &[u8]) -> String {
-    base64::encode(data)
-        .as_bytes()
-        .chunks(76)
-        .map(|chunk| String::from_utf8_lossy(chunk).into_owned())
-        .collect::<Vec<_>>()
-        .join("\r\n")
 }
 
 fn format_time(time: &DateTime<Utc>) -> String {
