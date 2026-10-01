@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 
-use crate::common::send_email::GoogleSendEmailRequest;
+use crate::common::send_email::{format_message, GoogleSendEmailRequest};
 
 /// A calendar event that can be sent as an iCalendar invite using
 /// [`GmailClient::send_calendar_event`](crate::GmailClient::send_calendar_event).
@@ -97,6 +97,15 @@ impl CalendarEvent {
     }
 }
 
+fn wrapped_base64(data: &[u8]) -> String {
+    base64::encode(data)
+        .as_bytes()
+        .chunks(76)
+        .map(|chunk| String::from_utf8_lossy(chunk).into_owned())
+        .collect::<Vec<_>>()
+        .join("\r\n")
+}
+
 fn format_time(time: &DateTime<Utc>) -> String {
     time.format("%Y%m%dT%H%M%SZ").to_string()
 }
@@ -133,16 +142,58 @@ impl GoogleSendEmailRequest {
         content: &str,
         event: &CalendarEvent,
     ) -> Self {
-        let boundary = format!("rust-gmail-{}", Utc::now().timestamp_nanos());
-        let ics = event.to_ics(from, to);
-        let message = format!(
-            "From: {from}\r\nTo: {to}\r\nSubject: {subject}\r\nMIME-Version: 1.0\r\n\
-             Content-Type: multipart/alternative; boundary=\"{boundary}\"\r\n\r\n\
-             --{boundary}\r\nContent-Type: text/plain; charset=\"UTF-8\"\r\n\r\n{content}\r\n\
-             --{boundary}\r\nContent-Type: text/calendar; charset=\"UTF-8\"; method=REQUEST\r\n\r\n{ics}\
-             --{boundary}--\r\n",
+        let now = Utc::now().timestamp_nanos();
+        let mixed = format!("rust-gmail-mixed-{}", now);
+        let alt = format!("rust-gmail-alt-{}", now);
+        let ics = wrapped_base64(event.to_ics(from, to).as_bytes());
+        let text = wrapped_base64(content.as_bytes());
+        let text_part = format_message(
+            &[
+                ("Content-Type", "text/plain; charset=\"UTF-8\""),
+                ("Content-Transfer-Encoding", "base64"),
+            ],
+            &text,
         );
-        Self::from_raw(&message)
+        let calendar_part = format_message(
+            &[
+                (
+                    "Content-Type",
+                    "text/calendar; charset=\"UTF-8\"; method=REQUEST",
+                ),
+                ("Content-Transfer-Encoding", "base64"),
+            ],
+            &ics,
+        );
+        let alternative = format_message(
+            &[(
+                "Content-Type",
+                &format!("multipart/alternative; boundary=\"{alt}\""),
+            )],
+            &format!("--{alt}\r\n{text_part}\r\n--{alt}\r\n{calendar_part}\r\n--{alt}--\r\n"),
+        );
+        let attachment = format_message(
+            &[
+                ("Content-Type", "application/ics; name=\"invite.ics\""),
+                ("Content-Disposition", "attachment; filename=\"invite.ics\""),
+                ("Content-Transfer-Encoding", "base64"),
+            ],
+            &ics,
+        );
+        let body =
+            format!("--{mixed}\r\n{alternative}\r\n--{mixed}\r\n{attachment}\r\n--{mixed}--\r\n");
+        Self::from_headers(
+            &[
+                ("From", from),
+                ("To", to),
+                ("Subject", subject),
+                ("MIME-Version", "1.0"),
+                (
+                    "Content-Type",
+                    &format!("multipart/mixed; boundary=\"{mixed}\""),
+                ),
+            ],
+            &body,
+        )
     }
 }
 
@@ -166,4 +217,21 @@ pub fn mock_print_calendar_event(
         content,
         event.to_ics(send_from_email, receiver_email)
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::TimeZone;
+
+    #[test]
+    fn calendar_message_structure() {
+        let start = Utc.ymd(2030, 1, 1).and_hms(10, 0, 0);
+        let event = CalendarEvent::new("Sync, now", start, start + chrono::Duration::hours(1));
+        let ics = event.to_ics("a@x.test", "b@y.test");
+        assert!(ics.contains("METHOD:REQUEST\r\n"));
+        assert!(ics.contains("SUMMARY:Sync\\, now\r\n"));
+        assert!(ics.contains("DTSTART:20300101T100000Z\r\n"));
+        assert!(ics.ends_with("END:VCALENDAR\r\n"));
+    }
 }

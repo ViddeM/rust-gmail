@@ -37,8 +37,10 @@ pub async fn send_calendar_event(
         .query(&SEND_EMAIL_QUERY_PARAMETERS)
         .header(reqwest::header::AUTHORIZATION, format!("Bearer {}", token))
         .json(&request)
-        .send().await?
-        .text().await?;
+        .send()
+        .await?
+        .text()
+        .await?;
 
     let _response: GoogleSendEmailResponse = serde_json::from_str(&response_text)
         .map_err(|_| GoogleApiError::EmailSendError(response_text))?;
